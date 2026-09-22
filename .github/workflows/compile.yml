@@ -1,0 +1,2 @@
+uses: rominek75-boop/android_device_oukitel_wp12/.github/workflows/compile.yml@main
+name: Build TWRP Recovery
