@@ -1,1 +1,82 @@
-name: Build TWRP Recovery on: workflow_dispatch: jobs: build: runs-on: ubuntu-latest steps: - name: Checkout Code uses: actions/checkout@v4 - name: Set up Build Environment run: | sudo apt-get update sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32readline-dev lib32z1-dev liblz4-tool libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 - name: Download TWRP Minimal Manifest run: | mkdir twrp-workspace && cd twrp-workspace git config --global user.name "GitHub Action" git config --global user.email "action@github.com" repo init --depth=1 -u https://github.com -b twrp-11 repo sync -c -j$(nproc) --no-clone-bundle --no-tags - name: Clone Device Tree run: | mkdir -p twrp-workspace/device/oukitel/wp12 cp -r * twrp-workspace/device/oukitel/wp12/ 2>/dev/null || true - name: Run Compilation run: | cd twrp-workspace export ALLOW_MISSING_DEPENDENCIES=true . build/envsetup.sh lunch twrp_wp12-eng || lunch omni_wp12-eng mka recoveryimage -j$(nproc) - name: Upload TWRP Image uses: actions/upload-artifact@v4 with: name: TWRP-Oukitel-WP12 path: twrp-workspace/out/target/product/wp12/*.img
+name: Recovery Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      MANIFEST_URL:
+        description: 'URL adresa TWRP manifestu'
+        required: true
+        default: 'https://github.com'
+      MANIFEST_BRANCH:
+        description: 'Větev manifestu (Android verze)'
+        required: true
+        default: 'twrp-12.1'
+      DEVICE_TREE_URL:
+        description: 'Odkaz na váš vygenerovaný Device Tree repozitář'
+        required: true
+        default: 'https://github.com/rominek75-boop/twrp_oukitel_wp12.git'
+      DEVICE_TREE_BRANCH:
+        description: 'Větev vašeho Device Tree'
+        required: true
+        default: 'main'
+      DEVICE_PATH:
+        description: 'Cesta k zařízení'
+        required: true
+        default: 'device/oukitel/WP12'
+      DEVICE_NAME:
+        description: 'Název zařízení'
+        required: true
+        default: 'WP12'
+      MAKEFILE_NAME:
+        description: 'Název makefile (bez přípony .mk)'
+        required: true
+        default: 'twrp_WP12'
+      BUILD_TARGET:
+        description: 'Cíl sestavení (boot nebo recovery)'
+        required: true
+        default: 'boot'
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    steps:
+    - name: Kontrola zdrojů repozitáře
+      uses: actions/checkout@v4
+
+    - name: Vyčištění místa na disku
+      run: |
+        sudo docker image prune -a -f
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/libexec/docker/cli-plugins/docker-compose
+
+    - name: Instalace nástrojů a balíčků
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32readline-dev lib32z1-dev libelf-dev liblz4-tool libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip
+        sudo apt-get install -y repo
+
+    - name: Inicializace TWRP zdrojů
+      run: |
+        git config --global user.name "GitHub Action"
+        git config --global user.email "action@github.com"
+        mkdir twrp-workspace && cd twrp-workspace
+        repo init --depth=1 -u ${{ github.event.inputs.MANIFEST_URL }} -b ${{ github.event.inputs.MANIFEST_BRANCH }}
+        repo sync -c -j$(nproc) --no-clone-bundle --no-tags --force-sync
+
+    - name: Klonování Device Tree
+      run: |
+        cd twrp-workspace
+        git clone --depth=1 -b ${{ github.event.inputs.DEVICE_TREE_BRANCH }} ${{ github.event.inputs.DEVICE_TREE_URL }} ${{ github.event.inputs.DEVICE_PATH }}
+
+    - name: Spuštění kompilace
+      run: |
+        cd twrp-workspace
+        export ALLOW_MISSING_DEPENDENCIES=true
+        . build/envsetup.sh
+        lunch ${{ github.event.inputs.MAKEFILE_NAME }}-eng
+        make -j$(nproc) ${{ github.event.inputs.BUILD_TARGET }}image
+
+    - name: Nahrání hotového souboru do přílohy
+      uses: actions/upload-artifact@v4
+      with:
+        name: TWRP-${{ github.event.inputs.DEVICE_NAME }}
+        path: twrp-workspace/out/target/product/${{ github.event.inputs.DEVICE_NAME }}/${{ github.event.inputs.BUILD_TARGET }}.img
